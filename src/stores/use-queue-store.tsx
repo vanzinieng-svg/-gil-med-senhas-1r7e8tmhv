@@ -69,6 +69,8 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     fetchTickets()
 
+    supabase.removeChannel(supabase.channel('public:tickets'))
+
     const channel = supabase
       .channel('public:tickets')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, (payload) => {
