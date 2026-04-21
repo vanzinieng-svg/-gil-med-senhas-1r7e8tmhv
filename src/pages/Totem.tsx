@@ -12,10 +12,12 @@ const Totem = () => {
     return () => clearInterval(timer)
   }, [])
 
-  const handlePrint = (type: 'NORMAL' | 'PREFERENCIAL') => {
+  const handlePrint = async (type: 'NORMAL' | 'PREFERENCIAL') => {
     if (printingTicket) return
 
-    const ticket = generateTicket(type)
+    const ticket = await generateTicket(type)
+    if (!ticket) return
+
     setPrintingTicket(ticket)
 
     // Give react time to render the print view, then trigger print

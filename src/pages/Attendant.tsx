@@ -45,7 +45,7 @@ const Attendant = () => {
     }
   }, [currentCall, deskNumber, tickets])
 
-  const handleCallNext = () => {
+  const handleCallNext = async () => {
     if (!deskNumber.trim()) {
       toast({
         title: 'Atenção',
@@ -57,13 +57,13 @@ const Attendant = () => {
 
     // Complete existing if forgot
     if (localActiveTicket) {
-      completeTicket(localActiveTicket.id)
+      await completeTicket(localActiveTicket.id)
     }
 
-    callNext(deskNumber)
+    await callNext(deskNumber)
   }
 
-  const handleCallSpecific = (id: string) => {
+  const handleCallSpecific = async (id: string) => {
     if (!deskNumber.trim()) {
       toast({
         title: 'Atenção',
@@ -73,14 +73,14 @@ const Attendant = () => {
       return
     }
     if (localActiveTicket) {
-      completeTicket(localActiveTicket.id)
+      await completeTicket(localActiveTicket.id)
     }
-    callSpecific(deskNumber, id)
+    await callSpecific(deskNumber, id)
   }
 
-  const handleComplete = () => {
+  const handleComplete = async () => {
     if (localActiveTicket) {
-      completeTicket(localActiveTicket.id)
+      await completeTicket(localActiveTicket.id)
       setLocalActiveTicket(null)
       toast({ title: 'Sucesso', description: 'Atendimento finalizado com sucesso.' })
     }
