@@ -11,15 +11,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 
 const Attendant = () => {
-  const {
-    tickets,
-    currentCall,
-    callNext,
-    callSpecific,
-    repeatCall,
-    completeTicket,
-    getWaitingCount,
-  } = useQueueStore()
+  const { tickets, currentCall, callNext, callSpecific, repeatTicket, completeTicket } =
+    useQueueStore()
   const [deskNumber, setDeskNumber] = useState('Guichê 01')
   const { toast } = useToast()
 
@@ -237,7 +230,11 @@ const Attendant = () => {
                     {localActiveTicket.number}
                   </div>
                   <div className="flex gap-3">
-                    <Button variant="outline" className="flex-1" onClick={repeatCall}>
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => localActiveTicket && repeatTicket(localActiveTicket.id)}
+                    >
                       <RefreshCcw className="w-4 h-4 mr-2" /> Repetir
                     </Button>
                     <Button

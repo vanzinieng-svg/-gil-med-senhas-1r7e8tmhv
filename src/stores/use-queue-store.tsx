@@ -1,15 +1,26 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react'
 import { supabase } from '@/lib/supabase/client'
-import { Database } from '@/lib/supabase/types'
 
-type Ticket = Database['public']['Tables']['tickets']['Row']
+export interface Ticket {
+  id: string
+  number: string
+  type: 'NORMAL' | 'PREFERENCIAL'
+  status: 'WAITING' | 'CALLED' | 'COMPLETED'
+  createdAt: Date
+  calledAt: Date | null
+  completedAt: Date | null
+  desk: string | null
+}
 
 interface QueueContextType {
   tickets: Ticket[]
+  history: Ticket[]
+  currentCall: Ticket | null
+  callTriggerCounter: number
   loading: boolean
-  addTicket: (type: 'NORMAL' | 'PREFERENCIAL') => Promise<void>
-  callTicket: (id: string, desk: string) => Promise<void>
-  callNext: (desk: string, type?: 'NORMAL' | 'PREFERENCIAL') => Promise<void>
+  generateTicket: (type: 'NORMAL' | 'PREFERENCIAL') => Promise<Ticket | null>
+  callSpecific: (desk: string, id: string) => Promise<void>
+  callNext: (desk: string) => Promise<void>
   completeTicket: (id: string) => Promise<void>
   repeatTicket: (id: string) => Promise<void>
 }
@@ -24,9 +35,25 @@ export const useQueue = () => {
 
 export default useQueue
 
+const mapTicket = (row: any): Ticket => ({
+  id: row.id,
+  number: row.number,
+  type: row.type,
+  status: row.status,
+  createdAt: new Date(row.created_at),
+  calledAt: row.called_at ? new Date(row.called_at) : null,
+  completedAt: row.completed_at ? new Date(row.completed_at) : null,
+  desk: row.desk,
+})
+
 export const QueueProvider = ({ children }: { children: ReactNode }) => {
   const [tickets, setTickets] = useState<Ticket[]>([])
+  const [history, setHistory] = useState<Ticket[]>([])
+  const [currentCall, setCurrentCall] = useState<Ticket | null>(null)
+  const [callTriggerCounter, setCallTriggerCounter] = useState(0)
   const [loading, setLoading] = useState(true)
+
+  const currentCallRef = useRef<Ticket | null>(null)
 
   const fetchTickets = async () => {
     const today = new Date()
@@ -39,7 +66,24 @@ export const QueueProvider = ({ children }: { children: ReactNode }) => {
       .order('created_at', { ascending: false })
 
     if (!error && data) {
-      setTickets(data)
+      const mapped = data.map(mapTicket)
+      setTickets(mapped)
+
+      const called = mapped
+        .filter((t) => t.calledAt)
+        .sort((a, b) => b.calledAt!.getTime() - a.calledAt!.getTime())
+
+      setHistory(called)
+
+      if (called.length > 0) {
+        setCurrentCall((prev) => {
+          if (!prev) {
+            currentCallRef.current = called[0]
+            return called[0]
+          }
+          return prev
+        })
+      }
     }
     setLoading(false)
   }
@@ -48,49 +92,59 @@ export const QueueProvider = ({ children }: { children: ReactNode }) => {
     let isMounted = true
     let activeChannel: ReturnType<typeof supabase.channel> | null = null
 
-    fetchTickets()
+    const init = async () => {
+      await fetchTickets()
 
-    const setupRealtime = async () => {
-      // Sincronização Atômica e Limpeza de Conexão:
-      // Garante que canais antigos sejam totalmente encerrados antes de iniciar um novo,
-      // prevenindo o erro "cannot add postgres_changes callbacks... after subscribe()".
-      const existingChannels = supabase.getChannels()
-      const ticketChannels = existingChannels.filter((c) => c.topic.includes('tickets'))
+      if (!isMounted) return
 
-      for (const c of ticketChannels) {
+      // Previne duplicação de canais
+      const existingChannels = supabase.getChannels().filter((c) => c.topic.includes('tickets'))
+      for (const c of existingChannels) {
         await supabase.removeChannel(c)
       }
 
       if (!isMounted) return
 
-      // Cria um ID de canal único para evitar colisões
       const channelId = `tickets_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
       activeChannel = supabase.channel(channelId)
 
-      // Registra os callbacks estritamente ANTES do subscribe
       activeChannel
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => {
-          if (isMounted) fetchTickets()
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, (payload) => {
+          if (!isMounted) return
+
+          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+            const newRecord = mapTicket(payload.new)
+
+            // Tratamento otimizado usando referência para evitar falhas na fila de state do React
+            if (newRecord.status === 'CALLED') {
+              const prev = currentCallRef.current
+              const isSameTicket = prev?.id === newRecord.id
+              const isNewTime = prev?.calledAt?.getTime() !== newRecord.calledAt?.getTime()
+
+              if (!prev || !isSameTicket || isNewTime) {
+                setCurrentCall(newRecord)
+                currentCallRef.current = newRecord
+                setCallTriggerCounter((c) => c + 1)
+              }
+            }
+          }
+          fetchTickets()
         })
         .subscribe()
     }
 
-    setupRealtime()
+    init()
 
     return () => {
       isMounted = false
       if (activeChannel) {
         supabase.removeChannel(activeChannel)
-      } else {
-        // Fallback: se o componente for desmontado antes de finalizar a configuração
-        supabase.getChannels().forEach((c) => {
-          if (c.topic.includes('tickets')) supabase.removeChannel(c)
-        })
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const addTicket = async (type: 'NORMAL' | 'PREFERENCIAL') => {
+  const generateTicket = async (type: 'NORMAL' | 'PREFERENCIAL') => {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
@@ -102,20 +156,27 @@ export const QueueProvider = ({ children }: { children: ReactNode }) => {
 
     if (error) {
       console.error('Error generating ticket number:', error)
-      return
+      return null
     }
 
     const prefix = type === 'PREFERENCIAL' ? 'P' : 'N'
     const number = `${prefix}${String((count || 0) + 1).padStart(3, '0')}`
 
-    await supabase.from('tickets').insert({
-      number,
-      type,
-      status: 'WAITING',
-    })
+    const { data, error: insertError } = await supabase
+      .from('tickets')
+      .insert({
+        number,
+        type,
+        status: 'WAITING',
+      })
+      .select()
+      .single()
+
+    if (insertError || !data) return null
+    return mapTicket(data)
   }
 
-  const callTicket = async (id: string, desk: string) => {
+  const callSpecific = async (desk: string, id: string) => {
     await supabase
       .from('tickets')
       .update({
@@ -126,21 +187,14 @@ export const QueueProvider = ({ children }: { children: ReactNode }) => {
       .eq('id', id)
   }
 
-  const callNext = async (desk: string, type?: 'NORMAL' | 'PREFERENCIAL') => {
-    let query = supabase
-      .from('tickets')
-      .select('*')
-      .eq('status', 'WAITING')
-      .order('created_at', { ascending: true })
+  const callNext = async (desk: string) => {
+    const nextPref = tickets.find((t) => t.status === 'WAITING' && t.type === 'PREFERENCIAL')
+    const nextNormal = tickets.find((t) => t.status === 'WAITING' && t.type === 'NORMAL')
 
-    if (type) {
-      query = query.eq('type', type)
-    }
+    const next = nextPref || nextNormal
 
-    const { data } = await query.limit(1)
-
-    if (data && data.length > 0) {
-      await callTicket(data[0].id, desk)
+    if (next) {
+      await callSpecific(desk, next.id)
     }
   }
 
@@ -155,8 +209,6 @@ export const QueueProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const repeatTicket = async (id: string) => {
-    // Updating called_at forces the Realtime listener to trigger an update
-    // for the call panel, making the alert sound play again
     await supabase
       .from('tickets')
       .update({
@@ -169,9 +221,12 @@ export const QueueProvider = ({ children }: { children: ReactNode }) => {
     <QueueContext.Provider
       value={{
         tickets,
+        history,
+        currentCall,
+        callTriggerCounter,
         loading,
-        addTicket,
-        callTicket,
+        generateTicket,
+        callSpecific,
         callNext,
         completeTicket,
         repeatTicket,
