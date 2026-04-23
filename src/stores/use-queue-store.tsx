@@ -22,6 +22,8 @@ export const useQueue = () => {
   return context
 }
 
+export default useQueue
+
 export const QueueProvider = ({ children }: { children: ReactNode }) => {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [loading, setLoading] = useState(true)
