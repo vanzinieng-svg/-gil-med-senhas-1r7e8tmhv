@@ -47,10 +47,11 @@ export const QueueProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     fetchTickets()
 
-    // CRITICAL FIX: The channel instance must be created INSIDE the useEffect.
-    // Defining it outside causes the "cannot add postgres_changes callbacks... after subscribe()"
-    // error when the component remounts (e.g. strict mode or route changes).
-    const channel = supabase.channel('realtime:public:tickets')
+    // CRITICAL FIX: Generate a unique channel name per mount to prevent "after subscribe"
+    // errors caused by React Strict Mode rapidly remounting the component and reusing an
+    // existing channel instance that is already in joined/joining state.
+    const channelId = `public:tickets:${Date.now()}:${Math.random().toString(36).substring(2, 9)}`
+    const channel = supabase.channel(channelId)
 
     channel
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => {
