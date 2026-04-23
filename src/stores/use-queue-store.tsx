@@ -88,6 +88,12 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     fetchTickets()
 
+    supabase.getChannels().forEach((c) => {
+      if (c.topic === 'public:tickets') {
+        supabase.removeChannel(c)
+      }
+    })
+
     const channel = supabase.channel('public:tickets', {
       config: { broadcast: { self: false } },
     })
