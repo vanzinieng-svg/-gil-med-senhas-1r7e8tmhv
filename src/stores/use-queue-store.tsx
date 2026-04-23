@@ -74,11 +74,46 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const channel = supabase
       .channel('public:tickets')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, (payload) => {
-        fetchTickets()
-
-        if (payload.eventType === 'UPDATE') {
+        if (payload.eventType === 'INSERT') {
+          const newRecord = payload.new as any
+          setTickets((prev) => {
+            if (prev.some((t) => t.id === newRecord.id)) return prev
+            return [
+              ...prev,
+              {
+                id: newRecord.id,
+                number: newRecord.number,
+                type: newRecord.type as TicketType,
+                status: newRecord.status as TicketStatus,
+                createdAt: new Date(newRecord.created_at),
+                calledAt: newRecord.called_at ? new Date(newRecord.called_at) : undefined,
+                completedAt: newRecord.completed_at ? new Date(newRecord.completed_at) : undefined,
+                desk: newRecord.desk || undefined,
+              },
+            ]
+          })
+        } else if (payload.eventType === 'UPDATE') {
           const newRecord = payload.new as any
           const oldRecord = payload.old as any
+
+          setTickets((prev) =>
+            prev.map((t) =>
+              t.id === newRecord.id
+                ? {
+                    id: newRecord.id,
+                    number: newRecord.number,
+                    type: newRecord.type as TicketType,
+                    status: newRecord.status as TicketStatus,
+                    createdAt: new Date(newRecord.created_at),
+                    calledAt: newRecord.called_at ? new Date(newRecord.called_at) : undefined,
+                    completedAt: newRecord.completed_at
+                      ? new Date(newRecord.completed_at)
+                      : undefined,
+                    desk: newRecord.desk || undefined,
+                  }
+                : t,
+            ),
+          )
 
           if (newRecord.status === 'CALLED' && oldRecord.status === 'WAITING') {
             setCurrentCall({
@@ -92,6 +127,8 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             })
             setCallTriggerCounter((prev) => prev + 1)
           }
+        } else if (payload.eventType === 'DELETE') {
+          setTickets((prev) => prev.filter((t) => t.id !== payload.old.id))
         }
       })
       .on('broadcast', { event: 'repeat-call' }, (payload) => {
@@ -149,13 +186,20 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return null
       }
 
-      return {
+      const newTicket: Ticket = {
         id: data.id,
         number: data.number,
         type: data.type as TicketType,
         status: data.status as TicketStatus,
         createdAt: new Date(data.created_at),
       }
+
+      setTickets((prev) => {
+        if (prev.some((t) => t.id === newTicket.id)) return prev
+        return [...prev, newTicket]
+      })
+
+      return newTicket
     },
     [getNextNumber, toast],
   )
