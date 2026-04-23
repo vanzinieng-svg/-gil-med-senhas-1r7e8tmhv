@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react'
 import useQueueStore, { Ticket } from '@/stores/use-queue-store'
-import { Settings2, BellRing, CheckCircle2, UserCheck, Users, RefreshCcw } from 'lucide-react'
+import {
+  Settings2,
+  BellRing,
+  CheckCircle2,
+  UserCheck,
+  Users,
+  RefreshCcw,
+  XCircle,
+} from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 
 const Attendant = () => {
-  const { tickets, currentCall, callNext, callSpecific, repeatTicket, completeTicket } =
+  const { tickets, currentCall, callNext, callSpecific, repeatTicket, completeTicket, markAbsent } =
     useQueueStore()
   const [deskNumber, setDeskNumber] = useState('Guichê 01')
   const { toast } = useToast()
@@ -32,7 +40,11 @@ const Attendant = () => {
 
     if (localActiveTicket) {
       const ticketInStore = tickets.find((t) => t.id === localActiveTicket.id)
-      if (!ticketInStore || ticketInStore.status === 'COMPLETED') {
+      if (
+        !ticketInStore ||
+        ticketInStore.status === 'COMPLETED' ||
+        ticketInStore.status === 'ABSENT'
+      ) {
         setLocalActiveTicket(null)
       }
     }
@@ -76,6 +88,18 @@ const Attendant = () => {
       await completeTicket(localActiveTicket.id)
       setLocalActiveTicket(null)
       toast({ title: 'Sucesso', description: 'Atendimento finalizado com sucesso.' })
+    }
+  }
+
+  const handleAbsent = async () => {
+    if (localActiveTicket) {
+      await markAbsent(localActiveTicket.id)
+      setLocalActiveTicket(null)
+      toast({
+        title: 'Atenção',
+        description: 'Senha marcada como "Não Compareceu".',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -229,17 +253,24 @@ const Attendant = () => {
                   <div className="text-6xl font-mono font-bold text-slate-900 mb-6">
                     {localActiveTicket.number}
                   </div>
-                  <div className="flex gap-3">
+                  <div className="flex gap-2 flex-wrap sm:flex-nowrap">
                     <Button
                       variant="outline"
-                      className="flex-1"
+                      className="flex-1 min-w-[120px]"
                       onClick={() => localActiveTicket && repeatTicket(localActiveTicket.id)}
                     >
                       <RefreshCcw className="w-4 h-4 mr-2" /> Repetir
                     </Button>
                     <Button
+                      variant="outline"
+                      className="flex-1 min-w-[140px] text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
+                      onClick={handleAbsent}
+                    >
+                      <XCircle className="w-4 h-4 mr-2" /> Pular
+                    </Button>
+                    <Button
                       variant="default"
-                      className="flex-1 bg-success hover:bg-success/90"
+                      className="flex-1 min-w-[120px] bg-success hover:bg-success/90 text-white"
                       onClick={handleComplete}
                     >
                       <CheckCircle2 className="w-4 h-4 mr-2" /> Finalizar

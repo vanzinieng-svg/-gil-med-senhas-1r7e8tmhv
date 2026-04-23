@@ -5,7 +5,7 @@ export interface Ticket {
   id: string
   number: string
   type: 'NORMAL' | 'PREFERENCIAL'
-  status: 'WAITING' | 'CALLED' | 'COMPLETED'
+  status: 'WAITING' | 'CALLED' | 'COMPLETED' | 'ABSENT'
   createdAt: Date
   calledAt: Date | null
   completedAt: Date | null
@@ -23,6 +23,7 @@ interface QueueContextType {
   callNext: (desk: string) => Promise<void>
   completeTicket: (id: string) => Promise<void>
   repeatTicket: (id: string) => Promise<void>
+  markAbsent: (id: string) => Promise<void>
 }
 
 const QueueContext = createContext<QueueContextType | undefined>(undefined)
@@ -217,6 +218,16 @@ export const QueueProvider = ({ children }: { children: ReactNode }) => {
       .eq('id', id)
   }
 
+  const markAbsent = async (id: string) => {
+    await supabase
+      .from('tickets')
+      .update({
+        status: 'ABSENT',
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+  }
+
   return (
     <QueueContext.Provider
       value={{
@@ -230,6 +241,7 @@ export const QueueProvider = ({ children }: { children: ReactNode }) => {
         callNext,
         completeTicket,
         repeatTicket,
+        markAbsent,
       }}
     >
       {children}
