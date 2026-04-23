@@ -21,11 +21,16 @@ const CallPanel = () => {
         playDingDong()
 
         // Wait for the ding dong to finish before speaking
-        setTimeout(() => {
+        const speakTimeout = setTimeout(() => {
           speakText(`Senha ${currentCall.number}. ${currentCall.desk}.`)
         }, 1200)
 
-        setTimeout(() => setIsFlashing(false), 3000)
+        const flashTimeout = setTimeout(() => setIsFlashing(false), 3000)
+
+        return () => {
+          clearTimeout(speakTimeout)
+          clearTimeout(flashTimeout)
+        }
       }
     }
   }, [callTriggerCounter, currentCall, isStarted])

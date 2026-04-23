@@ -115,7 +115,10 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             ),
           )
 
-          if (newRecord.status === 'CALLED' && oldRecord.status === 'WAITING') {
+          if (
+            newRecord.status === 'CALLED' &&
+            (oldRecord.status === 'WAITING' || oldRecord.desk !== newRecord.desk)
+          ) {
             setCurrentCall({
               id: newRecord.id,
               number: newRecord.number,
@@ -125,10 +128,41 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               calledAt: new Date(newRecord.called_at),
               desk: newRecord.desk,
             })
+            // Rely primarily on broadcast for updates, but keep this as fallback
             setCallTriggerCounter((prev) => prev + 1)
           }
         } else if (payload.eventType === 'DELETE') {
           setTickets((prev) => prev.filter((t) => t.id !== payload.old.id))
+        }
+      })
+      .on('broadcast', { event: 'call-ticket' }, (payload) => {
+        if (payload.payload.ticket) {
+          const ticket = payload.payload.ticket
+          setCurrentCall((prev) => {
+            // Prevent double triggers if already processed
+            if (prev?.id !== ticket.id || prev?.desk !== ticket.desk) {
+              setCallTriggerCounter((c) => c + 1)
+            }
+            return {
+              ...ticket,
+              createdAt: new Date(ticket.createdAt),
+              calledAt: ticket.calledAt ? new Date(ticket.calledAt) : undefined,
+              completedAt: ticket.completedAt ? new Date(ticket.completedAt) : undefined,
+            }
+          })
+
+          setTickets((prev) =>
+            prev.map((t) =>
+              t.id === ticket.id
+                ? {
+                    ...t,
+                    status: 'CALLED',
+                    desk: ticket.desk,
+                    calledAt: ticket.calledAt ? new Date(ticket.calledAt) : undefined,
+                  }
+                : t,
+            ),
+          )
         }
       })
       .on('broadcast', { event: 'repeat-call' }, (payload) => {
@@ -146,7 +180,42 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           setCallTriggerCounter((prev) => prev + 1)
         }
       })
-      .subscribe()
+      .on('broadcast', { event: 'new-ticket' }, (payload) => {
+        if (payload.payload.ticket) {
+          const newRecord = payload.payload.ticket
+          setTickets((prev) => {
+            if (prev.some((t) => t.id === newRecord.id)) return prev
+            return [
+              ...prev,
+              {
+                ...newRecord,
+                createdAt: new Date(newRecord.createdAt),
+                calledAt: newRecord.calledAt ? new Date(newRecord.calledAt) : undefined,
+                completedAt: newRecord.completedAt ? new Date(newRecord.completedAt) : undefined,
+              },
+            ]
+          })
+        }
+      })
+      .on('broadcast', { event: 'complete-ticket' }, (payload) => {
+        if (payload.payload.id) {
+          const id = payload.payload.id
+          setTickets((prev) =>
+            prev.map((t) =>
+              t.id === id
+                ? {
+                    ...t,
+                    status: 'COMPLETED',
+                    completedAt: new Date(),
+                  }
+                : t,
+            ),
+          )
+        }
+      })
+      .subscribe((status) => {
+        console.log('Realtime subscription status:', status)
+      })
 
     return () => {
       supabase.removeChannel(channel)
@@ -169,6 +238,7 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const generateTicket = useCallback(
     async (type: TicketType) => {
       const number = getNextNumber(type)
+      const now = new Date()
 
       const { data, error } = await supabase
         .from('tickets')
@@ -176,7 +246,7 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           number,
           type,
           status: 'WAITING',
-          created_at: new Date().toISOString(),
+          created_at: now.toISOString(),
         })
         .select()
         .single()
@@ -199,6 +269,12 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return [...prev, newTicket]
       })
 
+      supabase.channel('public:tickets').send({
+        type: 'broadcast',
+        event: 'new-ticket',
+        payload: { ticket: newTicket },
+      })
+
       return newTicket
     },
     [getNextNumber, toast],
@@ -206,11 +282,32 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const callTicketAction = useCallback(
     async (ticket: Ticket, desk: string) => {
+      const now = new Date()
+
+      // Optimistic update
+      const updatedTicket: Ticket = {
+        ...ticket,
+        status: 'CALLED',
+        desk,
+        calledAt: now,
+      }
+
+      setTickets((prev) => prev.map((t) => (t.id === ticket.id ? updatedTicket : t)))
+      setCurrentCall(updatedTicket)
+      setCallTriggerCounter((prev) => prev + 1)
+
+      // Broadcast immediately
+      supabase.channel('public:tickets').send({
+        type: 'broadcast',
+        event: 'call-ticket',
+        payload: { ticket: updatedTicket },
+      })
+
       const { error } = await supabase
         .from('tickets')
         .update({
           status: 'CALLED',
-          called_at: new Date().toISOString(),
+          called_at: now.toISOString(),
           desk,
         })
         .eq('id', ticket.id)
@@ -260,20 +357,33 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const completeTicket = useCallback(
     async (id: string) => {
+      const now = new Date()
+
+      // Optimistic update
+      setTickets((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, status: 'COMPLETED', completedAt: now } : t)),
+      )
+      if (currentCall?.id === id) {
+        setCurrentCall(null)
+      }
+
+      // Broadcast immediately
+      supabase.channel('public:tickets').send({
+        type: 'broadcast',
+        event: 'complete-ticket',
+        payload: { id },
+      })
+
       const { error } = await supabase
         .from('tickets')
         .update({
           status: 'COMPLETED',
-          completed_at: new Date().toISOString(),
+          completed_at: now.toISOString(),
         })
         .eq('id', id)
 
       if (error) {
         toast({ title: 'Erro ao finalizar', description: error.message, variant: 'destructive' })
-      } else {
-        if (currentCall?.id === id) {
-          setCurrentCall(null)
-        }
       }
     },
     [currentCall, toast],

@@ -35,16 +35,15 @@ const Attendant = () => {
   useEffect(() => {
     if (currentCall?.desk === deskNumber && currentCall.status === 'CALLED') {
       setLocalActiveTicket(currentCall)
-    } else if (currentCall === null) {
-      // If completed globally and currentCall is null
-      if (
-        localActiveTicket &&
-        tickets.find((t) => t.id === localActiveTicket.id)?.status === 'COMPLETED'
-      ) {
+    }
+
+    if (localActiveTicket) {
+      const ticketInStore = tickets.find((t) => t.id === localActiveTicket.id)
+      if (!ticketInStore || ticketInStore.status === 'COMPLETED') {
         setLocalActiveTicket(null)
       }
     }
-  }, [currentCall, deskNumber, tickets])
+  }, [currentCall, deskNumber, tickets, localActiveTicket])
 
   const handleCallNext = async () => {
     if (!deskNumber.trim()) {
