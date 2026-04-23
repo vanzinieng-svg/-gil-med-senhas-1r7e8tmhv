@@ -45,23 +45,48 @@ export const QueueProvider = ({ children }: { children: ReactNode }) => {
   }
 
   useEffect(() => {
+    let isMounted = true
+    let activeChannel: ReturnType<typeof supabase.channel> | null = null
+
     fetchTickets()
 
-    // CRITICAL FIX: Generate a unique channel name per mount to prevent "after subscribe"
-    // errors caused by React Strict Mode rapidly remounting the component and reusing an
-    // existing channel instance that is already in joined/joining state.
-    const channelId = `public:tickets:${Date.now()}:${Math.random().toString(36).substring(2, 9)}`
-    const channel = supabase.channel(channelId)
+    const setupRealtime = async () => {
+      // Sincronização Atômica e Limpeza de Conexão:
+      // Garante que canais antigos sejam totalmente encerrados antes de iniciar um novo,
+      // prevenindo o erro "cannot add postgres_changes callbacks... after subscribe()".
+      const existingChannels = supabase.getChannels()
+      const ticketChannels = existingChannels.filter((c) => c.topic.includes('tickets'))
 
-    channel
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => {
-        fetchTickets()
-      })
-      .subscribe()
+      for (const c of ticketChannels) {
+        await supabase.removeChannel(c)
+      }
+
+      if (!isMounted) return
+
+      // Cria um ID de canal único para evitar colisões
+      const channelId = `tickets_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+      activeChannel = supabase.channel(channelId)
+
+      // Registra os callbacks estritamente ANTES do subscribe
+      activeChannel
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => {
+          if (isMounted) fetchTickets()
+        })
+        .subscribe()
+    }
+
+    setupRealtime()
 
     return () => {
-      // Ensure the channel is properly cleaned up on unmount
-      supabase.removeChannel(channel)
+      isMounted = false
+      if (activeChannel) {
+        supabase.removeChannel(activeChannel)
+      } else {
+        // Fallback: se o componente for desmontado antes de finalizar a configuração
+        supabase.getChannels().forEach((c) => {
+          if (c.topic.includes('tickets')) supabase.removeChannel(c)
+        })
+      }
     }
   }, [])
 
