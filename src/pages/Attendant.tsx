@@ -1,14 +1,6 @@
 import { useState, useEffect } from 'react'
 import useQueueStore, { Ticket } from '@/stores/use-queue-store'
-import {
-  Settings2,
-  BellRing,
-  CheckCircle2,
-  UserCheck,
-  Users,
-  RefreshCcw,
-  XCircle,
-} from 'lucide-react'
+import { Settings2, BellRing, CheckCircle2, UserCheck, Users, RefreshCcw } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -60,12 +52,27 @@ const Attendant = () => {
       return
     }
 
-    // Complete existing if forgot
+    let finished = false
     if (localActiveTicket) {
       await completeTicket(localActiveTicket.id)
+      setLocalActiveTicket(null)
+      finished = true
     }
 
-    await callNext(deskNumber)
+    if (hasWaiting) {
+      await callNext(deskNumber)
+      if (finished) {
+        toast({ title: 'Sucesso', description: 'Atendimento finalizado e próxima senha chamada.' })
+      } else {
+        toast({ title: 'Sucesso', description: 'Próxima senha chamada com sucesso.' })
+      }
+    } else {
+      if (finished) {
+        toast({ title: 'Sucesso', description: 'Atendimento finalizado. A fila está vazia.' })
+      } else {
+        toast({ title: 'Atenção', description: 'Não há senhas aguardando no momento.' })
+      }
+    }
   }
 
   const handleCallSpecific = async (id: string) => {
@@ -79,6 +86,7 @@ const Attendant = () => {
     }
     if (localActiveTicket) {
       await completeTicket(localActiveTicket.id)
+      setLocalActiveTicket(null)
     }
     await callSpecific(deskNumber, id)
   }
@@ -88,18 +96,6 @@ const Attendant = () => {
       await completeTicket(localActiveTicket.id)
       setLocalActiveTicket(null)
       toast({ title: 'Sucesso', description: 'Atendimento finalizado com sucesso.' })
-    }
-  }
-
-  const handleAbsent = async () => {
-    if (localActiveTicket) {
-      await markAbsent(localActiveTicket.id)
-      setLocalActiveTicket(null)
-      toast({
-        title: 'Atenção',
-        description: 'Senha marcada como "Não Compareceu".',
-        variant: 'destructive',
-      })
     }
   }
 
@@ -253,27 +249,22 @@ const Attendant = () => {
                   <div className="text-6xl font-mono font-bold text-slate-900 mb-6">
                     {localActiveTicket.number}
                   </div>
-                  <div className="flex gap-2 flex-wrap sm:flex-nowrap">
+                  <div className="flex gap-4 flex-wrap sm:flex-nowrap mt-4">
                     <Button
                       variant="outline"
-                      className="flex-1 min-w-[120px]"
+                      size="lg"
+                      className="flex-1"
                       onClick={() => localActiveTicket && repeatTicket(localActiveTicket.id)}
                     >
-                      <RefreshCcw className="w-4 h-4 mr-2" /> Repetir
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="flex-1 min-w-[140px] text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
-                      onClick={handleAbsent}
-                    >
-                      <XCircle className="w-4 h-4 mr-2" /> Pular
+                      <RefreshCcw className="w-5 h-5 mr-2" /> Repetir
                     </Button>
                     <Button
                       variant="default"
-                      className="flex-1 min-w-[120px] bg-success hover:bg-success/90 text-white"
+                      size="lg"
+                      className="flex-1 bg-success hover:bg-success/90 text-white"
                       onClick={handleComplete}
                     >
-                      <CheckCircle2 className="w-4 h-4 mr-2" /> Finalizar
+                      <CheckCircle2 className="w-5 h-5 mr-2" /> Finalizar
                     </Button>
                   </div>
                 </div>
