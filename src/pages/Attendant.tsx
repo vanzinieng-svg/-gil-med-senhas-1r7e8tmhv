@@ -23,6 +23,7 @@ const Attendant = () => {
   const { tickets, currentCall, callNext, callSpecific, repeatTicket, completeTicket, markAbsent } =
     useQueueStore()
   const [deskNumber, setDeskNumber] = useState('Guichê 01')
+  const [isProcessing, setIsProcessing] = useState(false)
   const { toast } = useToast()
   const { signOut } = useAuth()
 
@@ -53,6 +54,7 @@ const Attendant = () => {
   }, [currentCall, deskNumber, tickets, localActiveTicket])
 
   const handleCallNext = async () => {
+    if (isProcessing) return
     if (!deskNumber.trim()) {
       toast({
         title: 'Atenção',
@@ -62,30 +64,40 @@ const Attendant = () => {
       return
     }
 
-    let finished = false
-    if (localActiveTicket) {
-      await completeTicket(localActiveTicket.id)
-      setLocalActiveTicket(null)
-      finished = true
-    }
+    setIsProcessing(true)
+    try {
+      let finished = false
+      if (localActiveTicket) {
+        await completeTicket(localActiveTicket.id)
+        setLocalActiveTicket(null)
+        finished = true
+      }
 
-    if (hasWaiting) {
-      await callNext(deskNumber)
-      if (finished) {
-        toast({ title: 'Sucesso', description: 'Atendimento finalizado e próxima senha chamada.' })
+      const called = await callNext(deskNumber)
+
+      if (called) {
+        if (finished) {
+          toast({
+            title: 'Sucesso',
+            description: 'Atendimento finalizado e próxima senha chamada.',
+          })
+        } else {
+          toast({ title: 'Sucesso', description: 'Próxima senha chamada com sucesso.' })
+        }
       } else {
-        toast({ title: 'Sucesso', description: 'Próxima senha chamada com sucesso.' })
+        if (finished) {
+          toast({ title: 'Sucesso', description: 'Atendimento finalizado. A fila está vazia.' })
+        } else {
+          toast({ title: 'Atenção', description: 'Não há senhas aguardando no momento.' })
+        }
       }
-    } else {
-      if (finished) {
-        toast({ title: 'Sucesso', description: 'Atendimento finalizado. A fila está vazia.' })
-      } else {
-        toast({ title: 'Atenção', description: 'Não há senhas aguardando no momento.' })
-      }
+    } finally {
+      setIsProcessing(false)
     }
   }
 
   const handleCallSpecific = async (id: string) => {
+    if (isProcessing) return
     if (!deskNumber.trim()) {
       toast({
         title: 'Atenção',
@@ -94,18 +106,29 @@ const Attendant = () => {
       })
       return
     }
-    if (localActiveTicket) {
-      await completeTicket(localActiveTicket.id)
-      setLocalActiveTicket(null)
+    setIsProcessing(true)
+    try {
+      if (localActiveTicket) {
+        await completeTicket(localActiveTicket.id)
+        setLocalActiveTicket(null)
+      }
+      await callSpecific(deskNumber, id)
+    } finally {
+      setIsProcessing(false)
     }
-    await callSpecific(deskNumber, id)
   }
 
   const handleComplete = async () => {
-    if (localActiveTicket) {
-      await completeTicket(localActiveTicket.id)
-      setLocalActiveTicket(null)
-      toast({ title: 'Sucesso', description: 'Atendimento finalizado com sucesso.' })
+    if (isProcessing) return
+    setIsProcessing(true)
+    try {
+      if (localActiveTicket) {
+        await completeTicket(localActiveTicket.id)
+        setLocalActiveTicket(null)
+        toast({ title: 'Sucesso', description: 'Atendimento finalizado com sucesso.' })
+      }
+    } finally {
+      setIsProcessing(false)
     }
   }
 
@@ -236,15 +259,23 @@ const Attendant = () => {
             <CardContent className="pt-6">
               <Button
                 onClick={handleCallNext}
-                disabled={!hasWaiting && !localActiveTicket}
+                disabled={(!hasWaiting && !localActiveTicket) || isProcessing}
                 size="lg"
                 className={cn(
                   'w-full h-16 text-lg relative overflow-hidden',
-                  hasWaiting && !localActiveTicket ? 'animate-pulse-ring' : '',
+                  hasWaiting && !localActiveTicket && !isProcessing ? 'animate-pulse-ring' : '',
                 )}
               >
-                <BellRing className="w-6 h-6 mr-3" />
-                {localActiveTicket ? 'Finalizar Atual e Chamar Próximo' : 'Chamar Próximo'}
+                {isProcessing ? (
+                  <RefreshCcw className="w-6 h-6 mr-3 animate-spin" />
+                ) : (
+                  <BellRing className="w-6 h-6 mr-3" />
+                )}
+                {isProcessing
+                  ? 'Processando...'
+                  : localActiveTicket
+                    ? 'Finalizar Atual e Chamar Próximo'
+                    : 'Chamar Próximo'}
               </Button>
             </CardContent>
           </Card>

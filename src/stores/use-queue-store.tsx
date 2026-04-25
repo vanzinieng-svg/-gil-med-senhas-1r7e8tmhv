@@ -20,7 +20,7 @@ interface QueueContextType {
   loading: boolean
   generateTicket: (type: 'NORMAL' | 'PREFERENCIAL') => Promise<Ticket | null>
   callSpecific: (desk: string, id: string) => Promise<void>
-  callNext: (desk: string) => Promise<void>
+  callNext: (desk: string) => Promise<boolean>
   completeTicket: (id: string) => Promise<void>
   repeatTicket: (id: string) => Promise<void>
   markAbsent: (id: string) => Promise<void>
@@ -189,14 +189,41 @@ export const QueueProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const callNext = async (desk: string) => {
-    const nextPref = tickets.find((t) => t.status === 'WAITING' && t.type === 'PREFERENCIAL')
-    const nextNormal = tickets.find((t) => t.status === 'WAITING' && t.type === 'NORMAL')
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
 
-    const next = nextPref || nextNormal
+    // Consultar diretamente do banco para evitar race conditions ou estado desatualizado
+    const { data: prefData } = await supabase
+      .from('tickets')
+      .select('*')
+      .eq('status', 'WAITING')
+      .eq('type', 'PREFERENCIAL')
+      .gte('created_at', today.toISOString())
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+
+    let next = prefData
+
+    if (!next) {
+      const { data: normalData } = await supabase
+        .from('tickets')
+        .select('*')
+        .eq('status', 'WAITING')
+        .eq('type', 'NORMAL')
+        .gte('created_at', today.toISOString())
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+
+      next = normalData
+    }
 
     if (next) {
       await callSpecific(desk, next.id)
+      return true
     }
+    return false
   }
 
   const completeTicket = async (id: string) => {
