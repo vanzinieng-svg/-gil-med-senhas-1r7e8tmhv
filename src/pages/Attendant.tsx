@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react'
 import useQueueStore, { Ticket } from '@/stores/use-queue-store'
-import { Settings2, BellRing, CheckCircle2, UserCheck, Users, RefreshCcw } from 'lucide-react'
+import {
+  Settings2,
+  BellRing,
+  CheckCircle2,
+  UserCheck,
+  Users,
+  RefreshCcw,
+  LogOut,
+} from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { useAuth } from '@/hooks/use-auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -15,6 +24,7 @@ const Attendant = () => {
     useQueueStore()
   const [deskNumber, setDeskNumber] = useState('Guichê 01')
   const { toast } = useToast()
+  const { signOut } = useAuth()
 
   // Filter queues
   const waitingNormal = tickets.filter((t) => t.status === 'WAITING' && t.type === 'NORMAL')
@@ -178,19 +188,32 @@ const Attendant = () => {
           <p className="text-muted-foreground">Gerencie as chamadas e filas do seu guichê.</p>
         </div>
 
-        <div className="flex items-center gap-4 bg-white p-2 pr-6 rounded-full shadow-sm border">
-          <div className="bg-primary/10 p-2 rounded-full">
-            <Settings2 className="w-5 h-5 text-primary" />
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 bg-white p-2 pr-6 rounded-full shadow-sm border">
+            <div className="bg-primary/10 p-2 rounded-full">
+              <Settings2 className="w-5 h-5 text-primary" />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-slate-600">Identificação:</span>
+              <Input
+                value={deskNumber}
+                onChange={(e) => setDeskNumber(e.target.value)}
+                className="w-32 h-8 border-none bg-slate-50 focus-visible:ring-1"
+                placeholder="Ex: Guichê 01"
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-slate-600">Identificação:</span>
-            <Input
-              value={deskNumber}
-              onChange={(e) => setDeskNumber(e.target.value)}
-              className="w-32 h-8 border-none bg-slate-50 focus-visible:ring-1"
-              placeholder="Ex: Guichê 01"
-            />
-          </div>
+          <Button
+            variant="outline"
+            className="flex items-center gap-2 bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+            onClick={async () => {
+              await signOut()
+              toast({ title: 'Sessão encerrada', description: 'Você saiu do sistema com sucesso.' })
+            }}
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="hidden sm:inline">Sair</span>
+          </Button>
         </div>
       </div>
 
